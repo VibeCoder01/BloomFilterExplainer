@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bloom Filter — Interactive Canvas Demo</title>
+<style>
+  :root{
+    --bg1:#0e1330; --bg2:#11183f;
+    --fg:#e7ecff; --muted:#a6b0d8;
+    --accent:#7aa2ff; --accent2:#6efacc; --accent3:#ff7ad9; --warn:#ffcc66;
+    --on:#5cff7a; --off:#1f294f; --grid:#1a2244;
+    --card:#101731ee; --glass:rgba(255,255,255,.06);
+    --shadow: 0 10px 30px rgba(0,0,0,.45), inset 0 0 20px rgba(255,255,255,.03);
+  }
+  html, body {height:100%;}
+  body{
+    margin:0; font: 16px/1.35 Inter, ui-sans-serif, system-ui, Segoe UI, Roboto, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji;
+    color:var(--fg);
+    /* Avoid giant background shorthand; some hosts inject with document.write */
+    background-color: var(--bg2);
+    background-image:
+      radial-gradient(1200px 800px at 20% -20%, #1a2a66 0%, rgba(0,0,0,0) 60%),
+      radial-gradient(1100px 900px at 120% 20%, #2a5a88 0%, rgba(0,0,0,0) 60%),
+      radial-gradient(1200px 900px at 50% 120%, #1a3355 0%, rgba(0,0,0,0) 60%),
+      linear-gradient(180deg, var(--bg1), var(--bg2));
+    background-repeat: no-repeat;
+    overflow:hidden;
+  }
+  canvas{position:fixed; inset:0; width:100vw; height:100vh; z-index:1}
+  .wrap{position:fixed; inset:0; display:grid; grid-template-columns:minmax(320px,400px) 1fr; gap:16px; z-index:3}
+  .panel{
+    position:relative; z-index:5; padding:18px; backdrop-filter: blur(12px); background:var(--card);
+    box-shadow: var(--shadow); border:1px solid rgba(255,255,255,.08);
+    border-radius:18px; margin:16px; display:flex; flex-direction:column; gap:14px; align-self:start;
+  }
+  h1{margin:0 0 6px; font-size:22px; letter-spacing:.4px;}
+  h1 .chip{font-size:12px; color:#c8d2ff; background:linear-gradient(90deg, #25306b, #1b274e); padding:4px 8px; border-radius:999px; margin-left:8px; border:1px solid rgba(255,255,255,.08)}
+  .sub{color:var(--muted); font-size:13px}
+  label{display:block; font-size:12px; color:#c6d0ff; margin-bottom:6px}
+  input[type="text"], .pill{
+    width:100%; background:#0d1430; color:var(--fg); border-radius:12px; border:1px solid #223067; 
+    padding:10px 12px; outline: none; box-shadow: inset 0 0 12px rgba(0,0,0,.25);
+  }
+  input[type="text"]{font-size:14px}
+  .row{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+  .btns{display:flex; gap:8px; flex-wrap:wrap}
+  button{
+    appearance:none; border:none; color:#0a112b; font-weight:700; letter-spacing:.25px; cursor:pointer;
+    background:linear-gradient(180deg, #a8c0ff, #7aa2ff); border-radius:12px; padding:12px 16px; font-size:14px;
+    box-shadow: 0 6px 16px rgba(122,162,255,.35), inset 0 0 0 1px rgba(255,255,255,.35);
+    transition: transform .08s ease, filter .2s ease;
+  }
+  button.alt{background:linear-gradient(180deg, #92ffd8, #6efacc); box-shadow: 0 6px 16px rgba(110,250,204,.35), inset 0 0 0 1px rgba(255,255,255,.35)}
+  button.warn{background:linear-gradient(180deg, #ffe6a3, #ffcc66); box-shadow: 0 6px 16px rgba(255,204,102,.35), inset 0 0 0 1px rgba(255,255,255,.35)}
+  button.ghost{background:linear-gradient(180deg, #e6e9ff, #cad1ff);} button:active{ transform: translateY(1px)}
+  .metrics{display:grid; grid-template-columns:repeat(2,1fr); gap:8px;}
+  .metric{background:var(--glass); border:1px solid rgba(255,255,255,.08); border-radius:14px; padding:10px 12px}
+  .metric .k{font-size:12px; color:var(--muted)} .metric .v{font-weight:800; font-size:18px}
+  .slider{display:flex; gap:10px; align-items:center}
+  .slider input[type="range"]{width:100%; height: 8px; accent-color:#7aa2ff}
+  .legend{display:flex; gap:10px; align-items:center; font-size:12px; color:#c6cff5}
+  .dot{width:12px; height:12px; border-radius:6px; display:inline-block}
+  .dot.on{background:radial-gradient(circle at 35% 35%, #b8ffd0 0, #0cff80 50%, #0cff8055 100%); box-shadow:0 0 16px #00ff9a77}
+  .dot.hash{background:radial-gradient(circle at 35% 35%, #ffd0f2 0, #ff7ad9 55%, #ff7ad955); box-shadow:0 0 16px #ff7ad977}
+  .dot.check{background:radial-gradient(circle at 35% 35%, #c6ddff 0, #7aa2ff 55%, #7aa2ff55); box-shadow:0 0 16px #7aa2ff77}
+  .small{font-size:12px; color:#b8c1ff}
+  .opts{display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:center}
+  .opts .check{display:flex; gap:8px; align-items:center; color:#cfe3ff; font-size:13px}
+  @media (max-width: 920px){ .wrap{grid-template-columns:1fr} }
+  #overlay{position:fixed; inset:0; display:flex; align-items:center; justify-content:center; z-index:6;
+           background:linear-gradient(180deg, rgba(8,12,28,.78), rgba(8,12,28,.82)); backdrop-filter: blur(6px);}  
+  #overlay .box{max-width:780px; background:var(--card); border:1px solid rgba(255,255,255,.12); padding:24px; border-radius:18px; box-shadow:var(--shadow)}
+  #overlay h2{margin:0 0 8px} #overlay p{color:#cfe3ff} #overlay ul{margin:10px 0 16px 18px; color:#cfe3ff}
+  #startBtn{font-size:16px}
+  .hud{position:fixed; left:50%; top:14px; transform:translateX(-50%); z-index:4; pointer-events:none}
+  .hud .hud-inner{background:rgba(0,0,40,.55); border:1px solid rgba(255,255,255,.12); padding:8px 12px; border-radius:999px; box-shadow:0 8px 24px rgba(0,0,0,.35); color:#cfe3ff; font-size:12px; backdrop-filter:blur(8px)}
+  .hud .sep{opacity:.6; margin:0 6px}
+</style>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+
+  <div class="wrap">
+    <aside class="panel">
+      <h1>Bloom Filter <span class="chip">interactive</span></h1>
+      <p class="sub">Add items, watch the hash probes light up bits, then test membership. Bloom filters are space‑efficient and may yield <em>false positives</em> but never false negatives.</p>
+
+      <div class="row">
+        <div>
+          <label>Bit array size (m)</label>
+          <div class="slider"><input id="m" type="range" min="64" max="4096" step="32" value="512"><span id="mVal" class="pill">512</span></div>
+        </div>
+        <div>
+          <label>Hash functions (k)</label>
+          <div class="slider"><input id="k" type="range" min="1" max="10" step="1" value="3"><span id="kVal" class="pill">3</span></div>
+        </div>
+      </div>
+
+      <div class="opts">
+        <label class="check"><input id="traceToggle" type="checkbox"> Trace per-hash</label>
+        <label class="check"><input id="curveToggle" type="checkbox" checked> Show FP curve</label>
+      </div>
+      <div class="row">
+        <div>
+          <label>Trace speed</label>
+          <div class="slider"><input id="speed" type="range" min="0.4" max="2.0" step="0.1" value="1"><span id="speedVal" class="pill">1.0×</span></div>
+        </div>
+        <div></div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Insert item</label>
+          <input id="addInput" type="text" placeholder="e.g. apple" />
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <div class="btns">
+            <button id="addBtn" class="alt">➕ Add</button>
+            <button id="addRand" class="ghost" title="Insert a random word">🎲 Random</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Check membership</label>
+          <input id="checkInput" type="text" placeholder="e.g. pear" />
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <div class="btns">
+            <button id="checkBtn">🔎 Check</button>
+            <button id="clearBtn" class="warn">🧹 Clear</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="metrics">
+        <div class="metric"><div class="k">Inserted (n)</div><div class="v" id="nVal">0</div></div>
+        <div class="metric"><div class="k">Set bits</div><div class="v" id="setBits">0</div></div>
+        <div class="metric"><div class="k">Est. false positive</div><div class="v" id="fpVal">—</div></div>
+        <div class="metric"><div class="k">Load factor</div><div class="v" id="loadVal">0%</div></div>
+      </div>
+
+      <div class="legend">
+        <span class="dot hash"></span> hash probes
+        <span class="dot on"></span> bit = 1
+        <span class="dot check"></span> membership check
+      </div>
+
+      <p class="small">Keys: <b>R</b> random, <b>A</b> add, <b>C</b> check, <b>X</b> clear, <b>H</b> toggle help, <b>?</b> overlay.</p>
+    </aside>
+  </div>
+
+  <div id="overlay">
+    <div class="box">
+      <h2>How a Bloom Filter works</h2>
+      <p>A Bloom filter is a compact, probabilistic set. To <b>insert</b> a value, we hash it with <em>k</em> hash functions and set the corresponding <em>m</em>-bit positions to 1. To <b>query</b>, we hash again and check those bits. If any is 0 → the item is <b>definitely not</b> present; if all are 1 → <b>possibly</b> present (could be a false positive).</p>
+      <ul>
+        <li>Space‑efficient: fixed <em>m</em> bits.</li>
+        <li>No false negatives; controllable false positives.</li>
+        <li>Deletions require counting or other variants.</li>
+      </ul>
+      <div class="btns"><button id="startBtn" class="alt">Start ▶</button></div>
+    </div>
+  </div>
+
+  <div class="hud" aria-hidden="true">
+    <div class="hud-inner">
+      <b>Controls:</b> set <em>m</em> & <em>k</em>, then <b>Add</b> / <b>Random</b>. Type a value and press <b>Check</b>. <span class="sep">•</span> <b>H</b> toggles help; <b>?</b> shows overlay.
+    </div>
+  </div>
+
+<script>
+(function(){
+  // Bootstrap after DOM is ready to avoid any host using document.write after load
+  function boot(){
+    'use strict';
+    const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+    const ease=(t)=>t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
+    const TAU=Math.PI*2;
+
+    // Canvas
+    const canvas = document.getElementById('stage');
+    const ctx = canvas.getContext('2d');
+    let DPR=window.devicePixelRatio||1;
+    function fit(){
+      DPR = window.devicePixelRatio || 1;
+      const w=window.innerWidth, h=window.innerHeight;
+      canvas.style.width=w+"px"; canvas.style.height=h+"px";
+      canvas.width=w*DPR; canvas.height=h*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
+    }
+    function onResize(){ fit(); grid.layout(bloom.m); particles.length = 0; }
+    window.addEventListener('resize', onResize); fit();
+
+    function layoutBounds(){
+      const pad = 24; const panel = document.querySelector('.panel');
+      const r = panel ? panel.getBoundingClientRect() : {left:0,right:0,top:0,bottom:0};
+      const w = canvas.width / DPR; const h = canvas.height / DPR;
+      const stackedByBreak = window.innerWidth <= 920;
+      let left = pad, right = w - pad, top = pad, bottom = h - pad;
+      const spaceRight = w - (r.right + pad) - pad;
+      if (!stackedByBreak && spaceRight >= 280) {
+        left = Math.max(pad, r.right + pad); right = w - pad; top = pad; bottom = h - pad;
+      } else {
+        left = pad; right = w - pad; top = Math.min(h - pad, r.bottom + pad); bottom = h - pad;
+      }
+      const width = Math.max(0, right - left); const height = Math.max(0, bottom - top);
+      return {left, right, top, bottom, width, height, pad, stacked:(stackedByBreak || spaceRight<280)};
+    }
+
+    class Bloom{
+      constructor(m=512,k=3){ this.m=m|0; this.k=k|0; this.bits=new Uint8Array(this.m); this.n=0; this.items=[]; }
+      clear(){ this.bits.fill(0); this.n=0; this.items.length=0; }
+      static h32(str, seed){ let h=seed|0; for(let i=0;i<str.length;i++){ h=(h^str.charCodeAt(i))*0x45d9f3b|0; h=(h<<13)|(h>>>19);} h=(h^(h>>>16))>>>0; return h; }
+      indices(x){ const m=this.m|0; if(m<=0) return []; const h1=(Bloom.h32(x,0x9e3779b1))>>>0; const h2=((Bloom.h32(x,0x85ebca77))|1)>>>0; const out=new Array(this.k); for(let i=0;i<this.k;i++){ let v=(h1 + (i*h2>>>0)) % m; if(v<0) v+=m; out[i]=v|0; } return out; }
+      addIndices(idx){ idx.forEach(i=>this.bits[i]=1); this.n++; }
+      add(x){ const idx=this.indices(x); this.addIndices(idx); this.items.push(x); return idx; }
+      has(x){ const idx=this.indices(x); return idx.every(i=>this.bits[i]===1); }
+      countSet(){ let c=0; for(const b of this.bits) if(b) c++; return c; }
+      fpEstimate(){ const k=this.k,m=this.m,n=this.n; if(m===0) return 0; return Math.pow(1 - Math.exp(-(k*n)/m), k); }
+    }
+
+    const grid = { margin:24, cell:18, baseCell:18, gap:6, cols:0, rows:0, origin:{x:0,y:0},
+      layout(m){
+        const B = layoutBounds();
+        const maxColsHard = m; const minCell = 8; this.baseCell = this.baseCell || 18;
+        let cell = this.baseCell; let gap = this.gap; const side=()=>cell+gap;
+        const needW=(cols)=> cols*side()-gap; const needH=(cols)=> Math.ceil(m/cols)*side()-gap;
+        let cols = Math.max(1, Math.floor(B.width / side())); cols = Math.min(cols, maxColsHard); if(!isFinite(cols)||cols<1) cols=1;
+        const widthLimit = Math.max(1, Math.floor(B.width / side())); while(needH(cols)>B.height && cols<Math.min(maxColsHard,widthLimit)) cols++;
+        if(needH(cols)>B.height || needW(cols)>B.width){ const scaleW=B.width/Math.max(needW(cols),1); const scaleH=B.height/Math.max(needH(cols),1); const scale=Math.max(minCell/this.baseCell, Math.min(1, Math.min(scaleW,scaleH))); cell=Math.max(minCell, Math.floor(this.baseCell*scale)); }
+        const s=cell+gap; cols=Math.max(1, Math.min(maxColsHard, Math.floor(B.width/s))); if(cols<1) cols=1; const rows=Math.ceil(m/cols);
+        const totalW=cols*s-gap, totalH=rows*s-gap; const ox=Math.max(B.left, B.right-totalW); const oy=Math.max(B.top, Math.min((B.top+B.bottom-totalH)/2, B.bottom-totalH));
+        this.cell=cell; this.cols=cols; this.rows=rows; this.origin={x:ox,y:oy};
+      },
+      cellAt(i){ const c=i%this.cols; const r=(i/this.cols)|0; const x=this.origin.x + c*(this.cell+this.gap); const y=this.origin.y + r*(this.cell+this.gap); return {x,y,w:this.cell,h:this.cell}; }
+    };
+
+    let bloom=new Bloom(512,3); grid.layout(bloom.m);
+    const particles=[]; const popups=[]; let traceMode=false; let showCurve=true; let traceSpeed=1; let curvePoints=[];
+    let bitPulse=new Float32Array(bloom.m); let checkPulse=new Float32Array(bloom.m);
+    const pulseBit=(i)=>{ if(i>=0 && i<bloom.m) bitPulse[i]=1; }; const pulseCheck=(i)=>{ if(i>=0 && i<bloom.m) checkPulse[i]=1; };
+    const reinitPulses=()=>{ bitPulse=new Float32Array(bloom.m); checkPulse=new Float32Array(bloom.m); };
+    const decay=(arr, dt, halfLife)=>{ const factor=Math.pow(0.5, dt/halfLife); for(let i=0;i<arr.length;i++) arr[i]*=factor; };
+
+    function spawnParticle(from,to,color){
+      const life=900+Math.random()*400; const w=canvas.width/DPR, h=canvas.height/DPR;
+      const sx=+from.x||0, sy=+from.y||0; const tx=clamp(+to.x||0,0,w), ty=clamp(+to.y||0,0,h);
+      const dx=tx-sx, dy=ty-sy; const len=Math.hypot(dx,dy)||1; const nx=-dy/len, ny=dx/len;
+      const bump=Math.min(80, Math.max(24, len*0.18));
+      const cx=(sx+tx)/2 + nx*bump*(Math.random()*0.6+0.4); const cy=(sy+ty)/2 + ny*bump*(Math.random()*0.6+0.4);
+      particles.push({x:sx,y:sy,r:3+Math.random()*2,t:0,life,sx,sy,tx,ty,cx,cy,color});
+    }
+    function drawParticles(dt){
+      for(let i=particles.length-1;i>=0;i--){
+        const p=particles[i]; p.t+=dt; const u=Math.max(0,Math.min(1,p.t/p.life)); const e=ease(u); const omt=1-e;
+        const x=omt*omt*p.sx + 2*omt*e*p.cx + e*e*p.tx; const y=omt*omt*p.sy + 2*omt*e*p.cy + e*e*p.ty;
+        ctx.beginPath(); ctx.arc(x,y,p.r*(1+Math.sin(u*TAU)*.1),0,TAU); const g=ctx.createRadialGradient(x,y,0,x,y,p.r*5); g.addColorStop(0,p.color+'ff'); g.addColorStop(1,p.color+'00'); ctx.fillStyle=g; ctx.fill(); if(u>=1) particles.splice(i,1);
+      }
+    }
+    function glowRect(x,y,w,h,hue,alpha){ const a=(typeof alpha==='number')?alpha:0.55; const g=ctx.createRadialGradient(x+w/2,y+h/2,2,x+w/2,y+h/2,Math.max(w,h)); g.addColorStop(0,'hsla('+hue+',95%,65%,'+a+')'); g.addColorStop(1,'hsla('+hue+',95%,65%,0)'); ctx.fillStyle=g; ctx.fillRect(x-12,y-12,w+24,h+24); }
+    function roundRect(ctx2,x,y,w,h,r){ const rr=Math.min(r,w/2,h/2); ctx2.beginPath(); ctx2.moveTo(x+rr,y); ctx2.arcTo(x+w,y,x+w,y+h,rr); ctx2.arcTo(x+w,y+h,x,y+h,rr); ctx2.arcTo(x,y+h,x,y,rr); ctx2.arcTo(x,y,x+w,y,rr); ctx2.closePath(); }
+    function popup(a,b,c,d,opts){ if(typeof a === 'object' && a !== null){ const o=a; o.t=0; o.pulseT=0; o.top=!!o.top; o.scale=o.scale||1; o.centered=!!o.centered; o.kind=o.kind||'normal'; popups.push(o);} else { const o=opts||{}; popups.push({text:a,x:b,y:c,color:d,t:0,pulseT:0,top:!!o.top,scale:o.scale||1,centered:!!o.centered,kind:o.kind||'normal'});} }
+    function drawPopups(dt){
+      const normals=[]; const tops=[];
+      for(let i=0;i<popups.length;i++){ (popups[i].top?tops:normals).push(popups[i]); }
+      const textDur=2600; // linger longer than before
+      const grow=600, fade=1000; // pulse timing
+      function pulseRings(px, py, scale, kind, pulseT){
+        const col = (kind==='false') ? [255,80,80] : [80,255,160];
+        for(let ring=0; ring<2; ring++){
+          const t = pulseT - ring*280; if(t<0) continue;
+          const s = Math.max(0, Math.min(1, t/grow));
+          const R = (40*scale) + s*220;
+          const decay = Math.max(0, 1 - Math.max(0, (t-grow)/fade));
+          const alpha = 0.50 * decay;
+          ctx.save();
+          const g=ctx.createRadialGradient(px, py, 0, px, py, R);
+          g.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},${alpha})`);
+          g.addColorStop(1, `rgba(${col[0]},${col[1]},${col[2]},0)`);
+          ctx.fillStyle=g; ctx.beginPath(); ctx.arc(px, py, R, 0, TAU); ctx.fill();
+          ctx.restore();
+        }
+      }
+      function drawOne(p){
+        p.t+=dt; p.pulseT+=dt; const u=p.t/textDur; if(u>1) return 'done';
+        const yy=p.y - u*28; const scale=p.scale||1;
+        ctx.save(); ctx.font='600 '+Math.round(14*scale)+'px Inter, system-ui';
+        const tw=ctx.measureText(p.text).width; const padX=12*scale; const bh=28*scale; const bw=tw+padX*2;
+        let bx,by; if(p.centered){ bx=Math.round(p.x - bw/2); by=Math.round(yy - bh + 6*scale);} else { bx=Math.round(p.x - bw); by=Math.round(yy - bh + 6*scale);} 
+        if(p.kind==='false' || p.kind==='true'){ pulseRings(p.centered? p.x : (bx+bw), yy, scale, p.kind, p.pulseT); }
+        const pulse = 0.35*(1-u) + 0.15*(1-u)*Math.sin(u*TAU*1.2);
+        ctx.globalAlpha=Math.max(0, pulse);
+        ctx.fillStyle='rgba(8,12,28,0.88)'; roundRect(ctx,bx,by,bw,bh,12*scale); ctx.fill();
+        ctx.globalAlpha=1; ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.lineWidth=1; roundRect(ctx,bx,by,bw,bh,12*scale); ctx.stroke();
+        ctx.fillStyle=p.color||'#aaf7d2';
+        const tx=p.centered?Math.round(p.x - tw/2):Math.round(p.x - tw - 6*scale);
+        ctx.fillText(p.text, tx, yy);
+        ctx.restore();
+        return 'ok';
+      }
+      for(let i=0;i<normals.length;i++){ if(drawOne(normals[i])==='done'){ const idx=popups.indexOf(normals[i]); if(idx>-1) popups.splice(idx,1);} }
+      for(let i=0;i<tops.length;i++){ if(drawOne(tops[i])==='done'){ const idx=popups.indexOf(tops[i]); if(idx>-1) popups.splice(idx,1);} }
+    }
+
+    function drawEmitter(x,y,color){ ctx.save(); const r=16; const grad=ctx.createRadialGradient(x,y,0,x,y,r*2.2); grad.addColorStop(0,color); grad.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=grad; ctx.beginPath(); ctx.arc(x,y,r*2.2,0,TAU); ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle=color; ctx.beginPath(); ctx.arc(x,y,r,0,TAU); ctx.stroke(); ctx.restore(); }
+
+    function drawBackdrop(t){
+      const w=canvas.width/DPR, h=canvas.height/DPR; const g=ctx.createLinearGradient(0,0,w,h);
+      const p1=0.2+0.1*Math.sin(t*0.0003), p2=0.8+0.1*Math.cos(t*0.00035);
+      g.addColorStop(0,'hsla('+(200+10*Math.sin(t*.0004))+',70%,14%,1)'); g.addColorStop(p1,'hsla('+(215+8*Math.cos(t*.0006))+',65%,16%,1)'); g.addColorStop(p2,'hsla('+(235+12*Math.sin(t*.0005))+',60%,18%,1)'); g.addColorStop(1,'hsla(245,55%,20%,1)');
+      ctx.fillStyle=g; ctx.fillRect(0,0,w,h);
+      ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,255,255,.06)';
+      for(let i=0;i<60;i++){ const sx=(i*97%w); const sy=(i*233%h); const r=(i%7===0?1.8:1.1); ctx.beginPath(); ctx.arc(sx,sy,r,0,TAU); ctx.fill(); }
+      ctx.globalCompositeOperation='source-over';
+      ctx.font='600 13px Inter, system-ui'; ctx.fillStyle='rgba(200,220,255,.9)';
+      const B = layoutBounds(); const side = grid.cell + grid.gap; const gridH = grid.rows*side - grid.gap;
+      const ex = Math.min(grid.origin.x - 24, Math.max(B.left + 16, grid.origin.x - 120));
+      const srcAdd = { x: ex, y: clamp(grid.origin.y + gridH/2, B.top+20, B.bottom-20) };
+      const srcCheck = { x: ex, y: clamp(grid.origin.y + gridH/2 + 120, B.top+20, B.bottom-20) };
+      const txAdd = Math.max(B.left + 6, srcAdd.x - 48);
+      const txCheck = Math.max(B.left + 6, srcCheck.x - 48);
+      ctx.fillText('Insert path', txAdd, srcAdd.y - 24); ctx.fillText('Check path', txCheck, srcCheck.y - 24);
+      drawEmitter(srcAdd.x, srcAdd.y, '#ff7ad9'); drawEmitter(srcCheck.x, srcCheck.y, '#7aa2ff');
+    }
+
+    function drawGrid(){
+      ctx.save(); const pad=18, r=18; const cols=grid.cols, rows=grid.rows;
+      const W=cols*(grid.cell+grid.gap)-grid.gap + pad*2; const H=rows*(grid.cell+grid.gap)-grid.gap + pad*2; const x=grid.origin.x - pad, y=grid.origin.y - pad;
+      ctx.beginPath(); roundRect(ctx,x,y,W,H,r);
+      const panelGrad=ctx.createLinearGradient(x,y,x,y+H); panelGrad.addColorStop(0,'rgba(255,255,255,.06)'); panelGrad.addColorStop(1,'rgba(255,255,255,.02)'); ctx.fillStyle=panelGrad; ctx.fill(); ctx.strokeStyle='rgba(255,255,255,.08)'; ctx.lineWidth=1; ctx.stroke();
+      for(let i=0;i<bloom.m;i++){
+        const c=grid.cellAt(i); const cx=c.x, cy=c.y, w=c.w, h=c.h; ctx.fillStyle='#0c1230'; ctx.fillRect(cx,cy,w,h); ctx.strokeStyle='#1a2244'; ctx.strokeRect(cx+.5,cy+.5,w-1,h-1);
+        const p=bitPulse[i]||0, q=checkPulse[i]||0;
+        if(bloom.bits[i]){ glowRect(cx,cy,w,h,140, 0.45+0.35*p); const g=ctx.createLinearGradient(cx,cy,cx,cy+h); g.addColorStop(0,'#0cff80'); g.addColorStop(1,'#24c98a'); ctx.fillStyle=g; roundRect(ctx,cx+2,cy+2,w-4,h-4,6); ctx.fill(); }
+        else { const g2=ctx.createLinearGradient(cx,cy,cx,cy+h); g2.addColorStop(0,'#0e1638'); g2.addColorStop(1,'#0a1028'); ctx.fillStyle=g2; roundRect(ctx,cx+2,cy+2,w-4,h-4,6); ctx.fill(); }
+        if(p>0.02){ ctx.save(); ctx.globalCompositeOperation='screen'; ctx.globalAlpha = Math.min(1, p*1.1); ctx.strokeStyle='#6efacc'; ctx.lineWidth=2+3*p; roundRect(ctx,cx+1,cy+1,w-2,h-2,8); ctx.stroke(); ctx.restore(); }
+        if(q>0.02){ ctx.save(); ctx.globalAlpha = 0.35 + 0.45*q; ctx.setLineDash([5,3]); ctx.strokeStyle='#7aa2ff'; ctx.lineWidth=1.5+2*q; roundRect(ctx,cx+1,cy+1,w-2,h-2,8); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); }
+      }
+      ctx.restore(); if(showCurve) drawFPCurve();
+    }
+
+    function recomputeCurve(){ const m=bloom.m, k=bloom.k; const N=200; curvePoints.length=0; for(let i=0;i<=N;i++){ const n=(i/N)*m; const p=Math.pow(1-Math.exp(-(k*n)/m), k); curvePoints.push({n,p}); } }
+    function drawFPCurve(){ const w=300, h=160; let x=grid.origin.x + 10; let y=grid.origin.y - h - 20; if(y<16) y=16; ctx.save(); ctx.beginPath(); roundRect(ctx,x,y,w,h,14); ctx.fillStyle='rgba(16,23,49,.65)'; ctx.fill(); ctx.strokeStyle='rgba(255,255,255,.12)'; ctx.stroke(); const pad=22; const gx=x+pad, gy=y+h-pad; const gw=w-pad*2, gh=h-pad*2; ctx.strokeStyle='rgba(255,255,255,.15)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(gx,gy); ctx.lineTo(gx+gw,gy); ctx.moveTo(gx,gy); ctx.lineTo(gx,gy-gh); ctx.stroke(); ctx.beginPath(); for(let i=0;i<curvePoints.length;i++){ const p=curvePoints[i]; const xn=gx + (p.n/bloom.m)*gw; const yn=gy - p.p*gh; if(i===0) ctx.moveTo(xn,yn); else ctx.lineTo(xn,yn);} ctx.strokeStyle='#7aa2ff'; ctx.lineWidth=2; ctx.stroke(); const xn=gx + (bloom.n/bloom.m)*gw; const yp=gy - bloom.fpEstimate()*gh; ctx.strokeStyle='#ffcc66'; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(xn,gy); ctx.lineTo(xn,gy-gh); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle='#aaf7d2'; ctx.beginPath(); ctx.arc(xn, yp, 3, 0, TAU); ctx.fill(); ctx.fillStyle='rgba(200,220,255,.9)'; ctx.font='600 12px Inter, system-ui'; ctx.fillText('False positive vs n', x+12, y+16); ctx.font='500 11px Inter, system-ui'; ctx.fillText(`m=${bloom.m}  k=${bloom.k}  n=${bloom.n}  p≈${(bloom.fpEstimate()*100).toFixed(2)}%`, x+12, y+h-8); ctx.restore(); }
+
+    let last=performance.now();
+    function loop(now){ const dt=now-last; last=now; ctx.clearRect(0,0,canvas.width,canvas.height); drawBackdrop(now); drawGrid(); drawParticles(dt); drawPopups(dt); decay(bitPulse, dt, 600); decay(checkPulse, dt, 800); requestAnimationFrame(loop); }
+    requestAnimationFrame(loop);
+
+    // DOM lookups (safe — DOM is ready now)
+    const $=(id)=>document.getElementById(id);
+    const mRange=$('m'), kRange=$('k'); const mVal=$('mVal'), kVal=$('kVal');
+    const addInput=$('addInput'), addBtn=$('addBtn'), addRand=$('addRand');
+    const checkInput=$('checkInput'), checkBtn=$('checkBtn');
+    const clearBtn=$('clearBtn');
+    const nVal=$('nVal'), fpVal=$('fpVal'), setBits=$('setBits'), loadVal=$('loadVal');
+    const overlay=$('overlay'), startBtn=$('startBtn');
+    const traceToggle=$('traceToggle'), curveToggle=$('curveToggle');
+    const speed=$('speed'), speedVal=$('speedVal');
+    const hud=document.querySelector('.hud');
+
+    function refreshMetrics(){ nVal.textContent=bloom.n; const set=bloom.countSet(); setBits.textContent=set; const load=(set/bloom.m)*100; loadVal.textContent=load.toFixed(1)+'%'; const fp=bloom.fpEstimate(); fpVal.textContent=isFinite(fp)?(fp*100).toFixed(2)+'%':'—'; }
+
+    function rebuild(){
+      const prev=bloom.items.slice();
+      bloom=new Bloom(parseInt(mRange.value,10), parseInt(kRange.value,10));
+      grid.layout(bloom.m); recomputeCurve(); reinitPulses(); particles.length=0;
+      for(const it of prev){ // visual replay (non-mutating bits again)
+        const idx=bloom.indices(it); const side=grid.cell+grid.gap; const gridH=grid.rows*side-grid.gap; const B=layoutBounds();
+        const ex = Math.min(grid.origin.x - 24, Math.max(B.left + 16, grid.origin.x - 120));
+        const src={ x: ex, y: clamp(grid.origin.y+gridH/2, B.top+20, B.bottom-20) };
+        idx.forEach(i=>{ const c=grid.cellAt(i); const center={x:c.x+c.w/2,y:c.y+c.h/2}; spawnParticle(src,center,'#ff7ad9'); pulseBit(i); });
+      }
+      setTimeout(refreshMetrics,50);
+    }
+
+    function showResultPopup(ok){
+      const w=canvas.width/DPR, h=canvas.height/DPR;
+      if(ok){
+        popup({ text:'Possibly in set (maybe false positive)', x:w/2, y:h/2, color:'#aaf7d2', top:true, centered:true, scale:1.3, kind:'true' });
+      } else {
+        popup({ text:'Definitely NOT in set', x:w/2, y:h/2, color:'#ff6666', top:true, centered:true, scale:1.45, kind:'false' });
+      }
+    }
+
+    function animateAdd(str){
+      if(!str) return; const idx=bloom.indices(str); const side=grid.cell+grid.gap; const gridH=grid.rows*side-grid.gap; const B=layoutBounds();
+      const ex = Math.min(grid.origin.x - 24, Math.max(B.left + 16, grid.origin.x - 120));
+      const src={ x: ex, y: clamp(grid.origin.y+gridH/2, B.top+20, B.bottom-20) };
+      if(traceMode){ let i=0; const stepDur=650/traceSpeed; (function step(){ if(i>=idx.length){ bloom.n++; bloom.items.push(str); refreshMetrics(); return; } const ii=idx[i]; const c=grid.cellAt(ii); const center={x:c.x+c.w/2,y:c.y+c.h/2}; spawnParticle(src,center,'#ff7ad9'); setTimeout(()=>{ if(isFinite(ii)){ bloom.bits[ii]=1; pulseBit(ii); } refreshMetrics(); i++; setTimeout(step, stepDur*0.35); }, stepDur*0.65); })(); }
+      else { idx.forEach(i=>{ const c=grid.cellAt(i); const center={x:c.x+c.w/2,y:c.y+c.h/2}; spawnParticle(src,center,'#ff7ad9'); pulseBit(i); }); bloom.add(str); refreshMetrics(); }
+    }
+
+    function animateCheck(str){
+      if(!str) return; const idx=bloom.indices(str); const side=grid.cell+grid.gap; const gridH=grid.rows*side-grid.gap; const B=layoutBounds();
+      const ex = Math.min(grid.origin.x - 24, Math.max(B.left + 16, grid.origin.x - 140));
+      const src={ x: ex, y: clamp(grid.origin.y+gridH/2+120, B.top+20, B.bottom-20) };
+      if(traceMode){ let i=0; let ok=true; const stepDur=700/traceSpeed; (function step(){ if(i>=idx.length){ showResultPopup(ok); return; } const ii=idx[i]; const c=grid.cellAt(ii); const center={x:c.x+c.w/2,y:c.y+c.h/2}; spawnParticle(src,center,'#7aa2ff'); pulseCheck(ii); setTimeout(()=>{ if(!bloom.bits[ii]) ok=false; i++; setTimeout(step, stepDur*0.15); }, stepDur); })(); }
+      else { let ok=true; idx.forEach(i=>{ const c=grid.cellAt(i); const center={x:c.x+c.w/2,y:c.y+c.h/2}; spawnParticle(src,center,'#7aa2ff'); pulseCheck(i); if(!bloom.bits[i]) ok=false; }); showResultPopup(ok); }
+    }
+
+    // Wire up UI
+    mRange.addEventListener('input', ()=>{ mVal.textContent=mRange.value; rebuild();});
+    kRange.addEventListener('input', ()=>{ kVal.textContent=kRange.value; rebuild();});
+    traceToggle.addEventListener('change', ()=>{ traceMode=traceToggle.checked; });
+    curveToggle.addEventListener('change', ()=>{ showCurve=curveToggle.checked; });
+    speed.addEventListener('input', ()=>{ traceSpeed=parseFloat(speed.value); speedVal.textContent=traceSpeed.toFixed(1)+'×'; });
+
+    addBtn.addEventListener('click', ()=>{ const v=addInput.value.trim(); animateAdd(v); addInput.value=''; addInput.focus(); });
+    addInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ const v=addInput.value.trim(); animateAdd(v); addInput.value=''; }});
+    const sampleWords='apple orange banana pear mango kiwi grape cherry melon berry peach plum apricot fig date lychee guava papaya lemon lime'.split(' ');
+    addRand.addEventListener('click', ()=>{ const w=sampleWords[(Math.random()*sampleWords.length)|0]+'-'+((Math.random()*999)|0); animateAdd(w); });
+
+    checkBtn.addEventListener('click', ()=>{ animateCheck(checkInput.value.trim()); });
+    checkInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ animateCheck(checkInput.value.trim()); }});
+
+    clearBtn.addEventListener('click', ()=>{ bloom.clear(); refreshMetrics(); reinitPulses(); });
+
+    document.addEventListener('keydown', (e)=>{
+      if(document.activeElement === addInput || document.activeElement === checkInput) return;
+      const k=e.key.toLowerCase(); if(k==='r'){ addRand.click(); } else if(k==='a'){ addBtn.click(); } else if(k==='c'){ checkBtn.click(); } else if(k==='x'){ clearBtn.click(); } else if(k==='h'){ hud.style.display = (hud.style.display==='none'?'block':'none'); } else if(k==='?'){ overlay.style.display = (overlay.style.display==='none' || overlay.style.display==='') ? 'flex' : 'none'; }
+    });
+
+    startBtn.addEventListener('click', ()=>{ overlay.style.display='none'; runDemo(); });
+    function runDemo(){ const demo=['apple','orange','banana','mango']; let i=0; (function step(){ if(i<demo.length){ animateAdd(demo[i++]); setTimeout(step,650);} })(); }
+
+    // ===== Minimal runtime self-tests =====
+    (function runTests(){
+      try{
+        // Existing correctness tests
+        const t=new Bloom(64,3);
+        console.assert(t.indices('x').length===3, 'k hash count');
+        const r=t.indices('x'); console.assert(r.every(v=>Number.isInteger(v) && v>=0 && v<64), 'indices in range');
+        const r2=t.indices('x'); console.assert(r.length===r2.length && r.every((v,i)=>v===r2[i]), 'indices deterministic');
+        const stress=new Bloom(257,7); for(let j=0;j<200;j++){ const arr=stress.indices('key:'+j); console.assert(arr.length===7 && arr.every(v=>v>=0 && v<257), 'stress indices bounds'); }
+        console.assert(Math.abs(new Bloom(64,3).fpEstimate() - 0) < 1e-12, 'fpEstimate(n=0) === 0');
+        t.add('hello'); console.assert(t.has('hello')===true, 'contains added item'); const c1=t.countSet(); t.add('world'); const c2=t.countSet(); console.assert(c2>=c1, 'set bits non-decreasing on add');
+        const B=layoutBounds(); console.assert(B && isFinite(B.left) && isFinite(B.right) && B.width>=0 && B.height>=0, 'layoutBounds sane rect'); grid.layout(256); const lastCell=grid.cellAt(255); console.assert(lastCell.x>=B.left-1 && lastCell.y>=B.top-1 && lastCell.x<=B.right+1 && lastCell.y<=B.bottom+1, 'grid within bounds');
+        const t2=new Bloom(128,5); console.assert(t2.indices('x').length===5, 'indices length tracks k'); const boundsOK=t2.indices('y').every(v=>v>=0 && v<128); console.assert(boundsOK, 'indices in range for k=5');
+        const bfM=new Bloom(256,4); const p0=bfM.fpEstimate(); bfM.n=10; const p1=bfM.fpEstimate(); bfM.n=20; const p2=bfM.fpEstimate(); console.assert(p0<=p1 && p1<=p2, 'fpEstimate non-decreasing with n');
+        const prevCount=particles.length; spawnParticle({x:0,y:0},{x:-100,y:-100},'#fff'); const lastP=particles[particles.length-1]; console.assert(lastP.tx>=0 && lastP.ty>=0, 'particle targets clamped >= 0'); particles.length=prevCount;
+        // New DOM readiness + UI tests
+        console.assert(mRange && kRange && addBtn && checkBtn && clearBtn, 'DOM controls exist after boot');
+        console.assert(typeof animateAdd==='function' && typeof animateCheck==='function', 'public funcs present');
+        const nBefore=bloom.n; animateAdd(''); console.assert(bloom.n===nBefore, 'animateAdd ignores empty');
+        const popsBefore=popups.length; showResultPopup(true); showResultPopup(false); console.assert(popups.length===popsBefore+2, 'result popups enqueue');
+      }catch(e){ console.error('Self-tests threw', e); }
+    })();
+
+    recomputeCurve(); refreshMetrics(); grid.layout(bloom.m);
+  }
+
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', boot, {once:true});
+  } else {
+    boot();
+  }
+})();
+</script>
+</body>
+</html>
